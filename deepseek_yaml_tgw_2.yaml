@@ -1,0 +1,473 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Multi-VPC Transit Gateway Architecture with Custom Routing
+
+Parameters:
+  KeyPairName:
+    Description: Name of an existing EC2 KeyPair
+    Type: AWS::EC2::KeyPair::KeyName
+
+Resources:
+  # VPCs and Subnets
+  VPCA:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: VPC-A
+
+  VPCAPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCA
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: VPC-A-Public
+
+  VPCAPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCA
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: VPC-A-Private
+
+  VPCB:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: VPC-B
+
+  VPCBPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCB
+      CidrBlock: 10.1.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: VPC-B-Private
+
+  VPCC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.2.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: VPC-C
+
+  VPCCPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCC
+      CidrBlock: 10.2.1.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: VPC-C-Private
+
+  # Internet Gateway for VPC-A
+  VPCAGateway:
+    Type: AWS::EC2::InternetGateway
+    Tags:
+      - Key: Name
+        Value: VPC-A-IGW
+  VPCAAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPCA
+      InternetGatewayId: !Ref VPCAGateway
+
+  # Route Tables for VPC-A
+  VPCAPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPCA
+      Tags:
+        - Key: Name
+          Value: VPC-A-Public-RT
+
+  VPCAPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCAAttachment
+    Properties:
+      RouteTableId: !Ref VPCAPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VPCAGateway
+
+  VPCAPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPCA
+      Tags:
+        - Key: Name
+          Value: VPC-A-Private-RT
+
+  # Route Tables for VPC-B and VPC-C
+  VPCBPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPCB
+      Tags:
+        - Key: Name
+          Value: VPC-B-Private-RT
+
+  VPCCPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPCC
+      Tags:
+        - Key: Name
+          Value: VPC-C-Private-RT
+
+  # Subnet Route Table Associations
+  VPCAPublicAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VPCAPublicSubnet
+      RouteTableId: !Ref VPCAPublicRouteTable
+
+  VPCAPrivateAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VPCAPrivateSubnet
+      RouteTableId: !Ref VPCAPrivateRouteTable
+
+  VPCBPrivateAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VPCBPrivateSubnet
+      RouteTableId: !Ref VPCBPrivateRouteTable
+
+  VPCCPrivateAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VPCCPrivateSubnet
+      RouteTableId: !Ref VPCCPrivateRouteTable
+
+  # Transit Gateway Configuration
+  TransitGateway:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      AutoAcceptSharedAttachments: disable
+      DefaultRouteTableAssociation: disable
+      DefaultRouteTablePropagation: disable
+      Tags:
+        - Key: Name
+          Value: Core-TGW
+
+  # TGW Attachments with explicit dependencies
+  TGWAttachmentA:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    DependsOn: TransitGateway
+    Properties:
+      SubnetIds: [!Ref VPCAPrivateSubnet]
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref VPCA
+      Tags:
+        - Key: Name
+          Value: VPC-A-TGW-Attach
+
+  TGWAttachmentB:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    DependsOn: TransitGateway
+    Properties:
+      SubnetIds: [!Ref VPCBPrivateSubnet]
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref VPCB
+      Tags:
+        - Key: Name
+          Value: VPC-B-TGW-Attach
+
+  TGWAttachmentC:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    DependsOn: TransitGateway
+    Properties:
+      SubnetIds: [!Ref VPCCPrivateSubnet]
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref VPCC
+      Tags:
+        - Key: Name
+          Value: VPC-C-TGW-Attach
+
+  # TGW Route Tables
+  TGWRouteTableA:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    DependsOn: TransitGateway
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+    Tags:
+      - Key: Name
+        Value: TGW-RT-A
+
+  TGWRouteTableB:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    DependsOn: TransitGateway
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+    Tags:
+      - Key: Name
+        Value: TGW-RT-B
+
+  TGWRouteTableC:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    DependsOn: TransitGateway
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+    Tags:
+      - Key: Name
+        Value: TGW-RT-C
+
+  # TGW Route Table Associations with dependencies
+  TGWAssociationA:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    DependsOn: [TGWAttachmentA, TGWRouteTableA]
+    Properties:
+      TransitGatewayAttachmentId: !Ref TGWAttachmentA
+      TransitGatewayRouteTableId: !Ref TGWRouteTableA
+
+  TGWAssociationB:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    DependsOn: [TGWAttachmentB, TGWRouteTableB]
+    Properties:
+      TransitGatewayAttachmentId: !Ref TGWAttachmentB
+      TransitGatewayRouteTableId: !Ref TGWRouteTableB
+
+  TGWAssociationC:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    DependsOn: [TGWAttachmentC, TGWRouteTableC]
+    Properties:
+      TransitGatewayAttachmentId: !Ref TGWAttachmentC
+      TransitGatewayRouteTableId: !Ref TGWRouteTableC
+
+  # TGW Route Propagations with dependencies
+  TGWPropagationAB:
+    Type: AWS::EC2::TransitGatewayRouteTablePropagation
+    DependsOn: [TGWAssociationA, TGWAssociationB]
+    Properties:
+      TransitGatewayAttachmentId: !Ref TGWAttachmentB
+      TransitGatewayRouteTableId: !Ref TGWRouteTableA
+
+  TGWPropagationBA:
+    Type: AWS::EC2::TransitGatewayRouteTablePropagation
+    DependsOn: [TGWAssociationA, TGWAssociationB]
+    Properties:
+      TransitGatewayAttachmentId: !Ref TGWAttachmentA
+      TransitGatewayRouteTableId: !Ref TGWRouteTableB
+
+  TGWPropagationBC:
+    Type: AWS::EC2::TransitGatewayRouteTablePropagation
+    DependsOn: [TGWAssociationB, TGWAssociationC]
+    Properties:
+      TransitGatewayAttachmentId: !Ref TGWAttachmentC
+      TransitGatewayRouteTableId: !Ref TGWRouteTableB
+
+  TGWPropagationCB:
+    Type: AWS::EC2::TransitGatewayRouteTablePropagation
+    DependsOn: [TGWAssociationB, TGWAssociationC]
+    Properties:
+      TransitGatewayAttachmentId: !Ref TGWAttachmentB
+      TransitGatewayRouteTableId: !Ref TGWRouteTableC
+
+  # VPC Route Table Routes with dependencies
+  VPCAPrivateRoute:
+    Type: AWS::EC2::Route
+    DependsOn: [TGWAttachmentA, TransitGateway]
+    Properties:
+      RouteTableId: !Ref VPCAPrivateRouteTable
+      DestinationCidrBlock: 10.0.0.0/8
+      TransitGatewayId: !Ref TransitGateway
+
+  VPCBPrivateRoute:
+    Type: AWS::EC2::Route
+    DependsOn: [TGWAttachmentB, TransitGateway]
+    Properties:
+      RouteTableId: !Ref VPCBPrivateRouteTable
+      DestinationCidrBlock: 10.0.0.0/8
+      TransitGatewayId: !Ref TransitGateway
+
+  VPCCPrivateRoute:
+    Type: AWS::EC2::Route
+    DependsOn: [TGWAttachmentC, TransitGateway]
+    Properties:
+      RouteTableId: !Ref VPCCPrivateRouteTable
+      DestinationCidrBlock: 10.0.0.0/8
+      TransitGatewayId: !Ref TransitGateway
+
+  # Security Groups
+  BastionSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Bastion Host Security Group
+      VpcId: !Ref VPCA
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 128.164.0.0/16
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 161.253.0.0/16
+      Tags:
+        - Key: Name
+          Value: Bastion-SG
+
+  VPCAPrivateSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: VPC-A Private Security Group
+      VpcId: !Ref VPCA
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref BastionSG
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.1.0.0/16  # VPC-B
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.2.0.0/16  # VPC-C
+      Tags:
+        - Key: Name
+          Value: VPC-A-Private-SG
+
+  VPCBPrivateSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: VPC-B Private Security Group
+      VpcId: !Ref VPCB
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.0.0.0/16  # VPC-A
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.2.0.0/16  # VPC-C
+      Tags:
+        - Key: Name
+          Value: VPC-B-Private-SG
+
+  VPCCPrivateSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: VPC-C Private Security Group
+      VpcId: !Ref VPCC
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.0.0.0/16  # VPC-A
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.1.0.0/16  # VPC-B
+      Tags:
+        - Key: Name
+          Value: VPC-C-Private-SG
+
+  # EC2 Instances with dependencies
+  BastionHost:
+    Type: AWS::EC2::Instance
+    DependsOn: [VPCAPublicAssociation, BastionSG]
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-085386e29e44dacd7
+      KeyName: !Ref KeyPairName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet: [!Ref BastionSG]
+          SubnetId: !Ref VPCAPublicSubnet
+      Tags:
+        - Key: Name
+          Value: Bastion-Host
+
+  VPCAInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: [VPCAPrivateAssociation, VPCAPrivateSG]
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-085386e29e44dacd7
+      KeyName: !Ref KeyPairName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          GroupSet: [!Ref VPCAPrivateSG]
+          SubnetId: !Ref VPCAPrivateSubnet
+      Tags:
+        - Key: Name
+          Value: VPC-A-Private-Instance
+
+  VPCBInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: [VPCBPrivateAssociation, VPCBPrivateSG]
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-085386e29e44dacd7
+      KeyName: !Ref KeyPairName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          GroupSet: [!Ref VPCBPrivateSG]
+          SubnetId: !Ref VPCBPrivateSubnet
+      Tags:
+        - Key: Name
+          Value: VPC-B-Private-Instance
+
+  VPCCInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: [VPCCPrivateAssociation, VPCCPrivateSG]
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-085386e29e44dacd7
+      KeyName: !Ref KeyPairName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          GroupSet: [!Ref VPCCPrivateSG]
+          SubnetId: !Ref VPCCPrivateSubnet
+      Tags:
+        - Key: Name
+          Value: VPC-C-Private-Instance
+
+Outputs:
+  BastionPublicIP:
+    Description: Public IP address of the bastion host
+    Value: !GetAtt BastionHost.PublicIp
+  VPCAInstancePrivateIP:
+    Description: Private IP of VPC-A instance
+    Value: !GetAtt VPCAInstance.PrivateIp
+  VPCBInstancePrivateIP:
+    Description: Private IP of VPC-B instance
+    Value: !GetAtt VPCBInstance.PrivateIp
+  VPCCInstancePrivateIP:
+    Description: Private IP of VPC-C instance
+    Value: !GetAtt VPCCInstance.PrivateIp
+  TransitGatewayID:
+    Description: Transit Gateway ID
+    Value: !Ref TransitGateway
+  TransitGatewayAttachmentA:
+    Description: VPC-A TGW Attachment ID
+    Value: !Ref TGWAttachmentA
+  TransitGatewayAttachmentB:
+    Description: VPC-B TGW Attachment ID
+    Value: !Ref TGWAttachmentB
+  TransitGatewayAttachmentC:
+    Description: VPC-C TGW Attachment ID
+    Value: !Ref TGWAttachmentC

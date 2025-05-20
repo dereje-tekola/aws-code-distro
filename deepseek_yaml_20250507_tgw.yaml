@@ -1,0 +1,416 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Multi-VPC setup with Transit Gateway connectivity and EC2 instances in all private subnets
+
+Parameters:
+  KeyPairName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+
+Resources:
+  # Internet Gateway for VPC1 (Public VPC)
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: VPC1-IGW
+
+  # Transit Gateway
+  TransitGateway:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      Description: Central Transit Gateway for VPC connectivity
+      AutoAcceptSharedAttachments: enable
+      DefaultRouteTableAssociation: enable
+      DefaultRouteTablePropagation: enable
+      Tags:
+        - Key: Name
+          Value: Core-Transit-Gateway
+
+  # VPC 1 - Public/Private VPC (10.0.0.0/16)
+  VPC1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: Public-Private-VPC
+
+  VPC1GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC1
+      InternetGatewayId: !Ref InternetGateway
+
+  # VPC 2 - Private Only (10.1.0.0/16)
+  VPC2:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: Private-VPC-1
+
+  # VPC 3 - Private Only (10.2.0.0/16)
+  VPC3:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.2.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: Private-VPC-2
+
+  # Subnets for VPC1 (Public/Private)
+  VPC1PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: VPC1-Public-Subnet
+
+  VPC1PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: VPC1-Private-Subnet
+
+  # Subnets for VPC2 (Private Only)
+  VPC2PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      CidrBlock: 10.1.1.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: VPC2-Private-Subnet
+
+  # Subnets for VPC3 (Private Only)
+  VPC3PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC3
+      CidrBlock: 10.2.1.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: VPC3-Private-Subnet
+
+  # Transit Gateway Attachments for each VPC
+  VPC1TransitGatewayAttachment:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    Properties:
+      SubnetIds:
+        # - !Ref VPC1PublicSubnet
+        - !Ref VPC1PrivateSubnet
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: VPC1-TGW-Attachment
+
+  VPC2TransitGatewayAttachment:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    Properties:
+      SubnetIds:
+        - !Ref VPC2PrivateSubnet
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref VPC2
+      Tags:
+        - Key: Name
+          Value: VPC2-TGW-Attachment
+
+  VPC3TransitGatewayAttachment:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    Properties:
+      SubnetIds:
+        - !Ref VPC3PrivateSubnet
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref VPC3
+      Tags:
+        - Key: Name
+          Value: VPC3-TGW-Attachment
+
+  # Route Tables - Custom route tables for each subnet
+  VPC1PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: VPC1-Public-RouteTable
+
+  VPC1PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: VPC1-Private-RouteTable
+
+  VPC2PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC2
+      Tags:
+        - Key: Name
+          Value: VPC2-Private-RouteTable
+
+  VPC3PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC3
+      Tags:
+        - Key: Name
+          Value: VPC3-Private-RouteTable
+
+  # Route Table Associations
+  VPC1PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VPC1PublicSubnet
+      RouteTableId: !Ref VPC1PublicRouteTable
+
+  VPC1PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VPC1PrivateSubnet
+      RouteTableId: !Ref VPC1PrivateRouteTable
+
+  VPC2PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VPC2PrivateSubnet
+      RouteTableId: !Ref VPC2PrivateRouteTable
+
+  VPC3PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VPC3PrivateSubnet
+      RouteTableId: !Ref VPC3PrivateRouteTable
+
+  # Routes for Public Subnet (VPC1)
+  VPC1PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPC1GatewayAttachment
+    Properties:
+      RouteTableId: !Ref VPC1PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # VPC1PublicTransitGatewayRoute:
+  #   Type: AWS::EC2::Route
+  #   Properties:
+  #     RouteTableId: !Ref VPC1PublicRouteTable
+  #     DestinationCidrBlock: 10.0.0.0/8
+  #     TransitGatewayId: !Ref TransitGateway
+
+  # Routes for Private Subnets
+  VPC1PrivateTransitGatewayRoute:
+    Type: AWS::EC2::Route
+    DependsOn: 
+      - TransitGateway
+      - VPC1TransitGatewayAttachment
+    Properties:
+      RouteTableId: !Ref VPC1PrivateRouteTable
+      DestinationCidrBlock: 10.0.0.0/8
+      TransitGatewayId: !Ref TransitGateway
+
+  VPC2PrivateTransitGatewayRoute:
+    Type: AWS::EC2::Route
+    DependsOn: 
+      - TransitGateway
+      - VPC1TransitGatewayAttachment
+    Properties:
+      RouteTableId: !Ref VPC2PrivateRouteTable
+      DestinationCidrBlock: 10.0.0.0/8
+      TransitGatewayId: !Ref TransitGateway
+
+  VPC3PrivateTransitGatewayRoute:
+    Type: AWS::EC2::Route
+    DependsOn: 
+      - TransitGateway
+      - VPC1TransitGatewayAttachment
+    Properties:
+      RouteTableId: !Ref VPC3PrivateRouteTable
+      DestinationCidrBlock: 10.0.0.0/8
+      TransitGatewayId: !Ref TransitGateway
+
+  # Security Groups
+  BastionHostSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for bastion host
+      VpcId: !Ref VPC1
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 128.164.0.0/16
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 161.253.0.0/16
+  
+      Tags:
+        - Key: Name
+          Value: Bastion-Host-SG
+
+  PrivateInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for private instances
+      VpcId: !Ref VPC1
+      SecurityGroupIngress:
+      # SSH from Bastion
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref BastionHostSecurityGroup
+      # ICMP (ping) from VPC2 private instances
+        - IpProtocol: icmp
+          FromPort: -1  # ICMP type (8 for echo request, -1 means all types)
+          ToPort: -1    # ICMP code (-1 means all codes)
+          CidrIp: 10.1.0.0/16  # VPC2 CIDR
+      # ICMP (ping) from VPC3 private instances
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.2.0.0/16  # VPC3 CIDR
+      Tags:
+        - Key: Name
+          Value: Private-Instance-SG
+
+  VPC2InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for VPC2 private instance
+      VpcId: !Ref VPC2
+      SecurityGroupIngress:
+      # SSH from Bastion
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 10.0.0.0/16  # VPC1 CIDR
+      # ICMP (ping) from VPC1 private instances
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.0.0.0/16  # VPC1 CIDR
+      Tags:
+        - Key: Name
+          Value: VPC2-Instance-SG
+
+  VPC3InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for VPC3 private instance
+      VpcId: !Ref VPC3
+      SecurityGroupIngress:
+      # SSH from Bastion
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 10.0.0.0/16  # VPC1 CIDR
+      # ICMP (ping) from VPC1 private instances
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.0.0.0/16  # VPC1 CIDR
+      Tags:
+        - Key: Name
+          Value: VPC3-Instance-SG
+
+  # EC2 Instances
+  BastionHost:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-085386e29e44dacd7 # Amazon Linux 2 in us-east-1
+      KeyName: !Ref KeyPairName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref BastionHostSecurityGroup
+          SubnetId: !Ref VPC1PublicSubnet
+      Tags:
+        - Key: Name
+          Value: Bastion-Host
+
+  VPC1PrivateInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-085386e29e44dacd7 # Amazon Linux 2 in us-east-1
+      KeyName: !Ref KeyPairName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          GroupSet:
+            - !Ref PrivateInstanceSecurityGroup
+          SubnetId: !Ref VPC1PrivateSubnet
+      Tags:
+        - Key: Name
+          Value: VPC1-Private-Instance
+
+  VPC2PrivateInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-085386e29e44dacd7 # Amazon Linux 2 in us-east-1
+      KeyName: !Ref KeyPairName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          GroupSet:
+            - !Ref VPC2InstanceSecurityGroup
+          SubnetId: !Ref VPC2PrivateSubnet
+      Tags:
+        - Key: Name
+          Value: VPC2-Private-Instance
+
+  VPC3PrivateInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-085386e29e44dacd7 # Amazon Linux 2 in us-east-1
+      KeyName: !Ref KeyPairName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          GroupSet:
+            - !Ref VPC3InstanceSecurityGroup
+          SubnetId: !Ref VPC3PrivateSubnet
+      Tags:
+        - Key: Name
+          Value: VPC3-Private-Instance
+
+Outputs:
+  BastionHostPublicIP:
+    Description: Public IP address of the bastion host
+    Value: !GetAtt BastionHost.PublicIp
+  TransitGatewayId:
+    Description: ID of the Transit Gateway
+    Value: !Ref TransitGateway
+  VPC1PrivateInstanceId:
+    Description: Instance ID of VPC1 private instance
+    Value: !Ref VPC1PrivateInstance
+  VPC2PrivateInstanceId:
+    Description: Instance ID of VPC2 private instance
+    Value: !Ref VPC2PrivateInstance
+  VPC3PrivateInstanceId:
+    Description: Instance ID of VPC3 private instance
+    Value: !Ref VPC3PrivateInstance
