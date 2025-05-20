@@ -1,6 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Multi-VPC Transit Gateway Architecture with Custom Routing
-
+# Author: Dereje
+# Date: May 19, 2025
+# Version: 1.0
+# email: dereje.tekola@gmail.com
 Parameters:
   KeyPairName:
     Description: Name of an existing EC2 KeyPair
